@@ -52,13 +52,17 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TICKS_PER_ITERATION_MS		50U
+#define TICKS_PER_ITERATION_MS		10U
 #define RNG_TIMEOUT					100U
 #define UART_TX_SIZE				16U
 
 #define RSA_MODULUS_SIZE 			128U
 #define RSA_INPUT_SIZE   			128U
 #define RSA_EXPONENT_SIZE 			3U
+
+#define ENCRYPTION_TYPE_NONE		(uint8_t)0U
+#define ENCRYPTION_TYPE_AES			(uint8_t)1U
+#define ENCRYPTION_TYPE_RSA			(uint8_t)2U
 
 /* USER CODE END PD */
 
@@ -90,12 +94,6 @@ void hal_callback_rng_random_number_ready(RNG_HandleTypeDef *hrng, uint32_t rand
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-typedef struct {
-    uint8_t *n;       /* Modulus */
-    uint32_t nLen;    /* Length of modulus in bytes */
-    uint8_t *e;       /* Public exponent */
-    uint32_t eLen;    /* Length of public exponent in bytes */
-} rsa_public_key_t;
 
 
 uint32_t lptim2_count;
@@ -119,7 +117,6 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 	static uint32_t tick_count_ms;
-	HAL_StatusTypeDef status = HAL_OK;
 
 
   /* USER CODE END 1 */
@@ -172,23 +169,23 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Initialize leds */
-  BSP_LED_Init(LED_GREEN);
-  BSP_LED_Init(LED_BLUE);
-  BSP_LED_Init(LED_RED);
+//  BSP_LED_Init(LED_GREEN);
+//  BSP_LED_Init(LED_BLUE);
+//  BSP_LED_Init(LED_RED);
 
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
-  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
+//  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
   /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity */
-  BspCOMInit.BaudRate   = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits   = COM_STOPBITS_1;
-  BspCOMInit.Parity     = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl  = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE)
-  {
-	  Error_Handler();
-  }
+//  BspCOMInit.BaudRate   = 115200;
+//  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
+//  BspCOMInit.StopBits   = COM_STOPBITS_1;
+//  BspCOMInit.Parity     = COM_PARITY_NONE;
+//  BspCOMInit.HwFlowCtl  = COM_HWCONTROL_NONE;
+//  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE)
+//  {
+//	  Error_Handler();
+//  }
 
   /* USER CODE BEGIN BSP */
 
@@ -197,7 +194,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-
+  uint8_t encryption_type = ENCRYPTION_TYPE_NONE;
+  uint8_t send_uart = 0U;
 
 
   HAL_UART_RegisterCallback(&hlpuart1, HAL_UART_TX_COMPLETE_CB_ID, hal_callback_lpuart_tx_complete);
@@ -230,43 +228,87 @@ int main(void)
   uint8_t exponent[3] = {0x01, 0x00, 0x01 };
   uint8_t encrypted[128];
   uint8_t aes_key_to_send[128];
-  uint32_t tmp[16];
+  uint32_t tmp[32];
 
-  uint8_t encryption_type = 0U;
 
-  aes_generate_and_store_key();
-
-  memset(&aes_key_to_send, '\0', sizeof(aes_key_to_send));
-  memset(&tmp, '\0', sizeof(tmp));
-
-  tmp[0] = hal_cryp_aes_get_word_of_key(0);
-  tmp[1] = hal_cryp_aes_get_word_of_key(1);
-  tmp[2] = hal_cryp_aes_get_word_of_key(2);
-  tmp[3] = hal_cryp_aes_get_word_of_key(3);
-
-  memcpy(&aes_key_to_send, &tmp, sizeof(aes_key_to_send));
-
-  if (rsa_encrypt(aes_key_to_send, 128, modulus, 128, exponent, 3, encrypted) != HAL_OK)
+  if (encryption_type == ENCRYPTION_TYPE_AES)
   {
-  	  Error_Handler();
+	  aes_generate_and_store_key();
+
+	  memset(&aes_key_to_send, '\0', sizeof(aes_key_to_send));
+	  memset(&tmp, '\0', sizeof(tmp));
+
+	  tmp[0] = hal_cryp_aes_get_word_of_key(0);
+	  tmp[1] = hal_cryp_aes_get_word_of_key(1);
+	  tmp[2] = hal_cryp_aes_get_word_of_key(2);
+	  tmp[3] = hal_cryp_aes_get_word_of_key(3);
+
+	  for (uint8_t i = 4U; i < 32; ++i) { tmp[i] = (uint32_t)0xFFFFFFFFU; }
+
+	  memcpy(&aes_key_to_send, &tmp, sizeof(aes_key_to_send));
+
+	  if (rsa_encrypt(aes_key_to_send, 128, modulus, 128, exponent, 3, encrypted) != HAL_OK)
+	  {
+	  	  Error_Handler();
+	  }
+
+	  MX_AES_Init();
+	  HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)encrypted, (uint16_t)RSA_INPUT_SIZE);
   }
-
-  MX_AES_Init();
-  HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)aes_key_to_send, (uint16_t)RSA_INPUT_SIZE);
-
 
   while (1)
   {
-	if (lptim2_count - tick_count_ms > TICKS_PER_ITERATION_MS)
-    {
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-		status = HAL_CRYP_Encrypt(&hcryp, (uint32_t*)data, (uint16_t)4, (uint32_t*)output, HAL_MAX_DELAY);
-//		status = HAL_CRYP_Decrypt(&hcryp, (uint32_t*)output, (uint16_t)4, (uint32_t*)decryp_result, HAL_MAX_DELAY);
+//	if (lptim2_count - tick_count_ms > TICKS_PER_ITERATION_MS)
+//    {
+//		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
 
-		HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)output, (uint16_t)UART_TX_SIZE);
+		if (encryption_type == ENCRYPTION_TYPE_AES)
+		{
+			if (HAL_CRYP_Encrypt(&hcryp, (uint32_t*)data, (uint16_t)4, (uint32_t*)output, HAL_MAX_DELAY) != HAL_OK)
+			{
 
-		tick_count_ms = lptim2_count;
-    }
+			}
+
+			if (send_uart == 1U)
+			{
+				if (HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)output, (uint16_t)UART_TX_SIZE) != HAL_OK)
+				{
+
+				}
+			}
+
+//			if (HAL_CRYP_Decrypt(&hcryp, (uint32_t*)output, (uint16_t)4, (uint32_t*)decryp_result, HAL_MAX_DELAY) != HAL_OK)
+//			{
+//
+//			}
+		}
+		else if (encryption_type == ENCRYPTION_TYPE_RSA)
+		{
+			if (rsa_encrypt(message, 128, modulus, 128, exponent, 3, encrypted) != HAL_OK)
+			{
+
+			}
+			if (send_uart == 1U)
+			{
+				if (HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)encrypted, (uint16_t)RSA_INPUT_SIZE) != HAL_OK)
+				{
+
+				}
+			}
+		}
+		else
+		{
+			if (send_uart == 1U)
+			{
+				if (HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)output, (uint16_t)UART_TX_SIZE) != HAL_OK)
+				{
+
+				}
+			}
+		}
+
+//		tick_count_ms = lptim2_count;
+//    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
