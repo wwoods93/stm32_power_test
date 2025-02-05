@@ -84,7 +84,7 @@ __IO uint32_t BspButtonState = BUTTON_RELEASED;
 void SystemClock_Config(void);
 static void SystemPower_Config(void);
 /* USER CODE BEGIN PFP */
-HAL_StatusTypeDef rsa_encrypt(const uint8_t *message, uint32_t messageSize, const uint8_t *modulus, uint32_t modulusSize, const uint8_t *exponent, uint32_t exponentSize, uint8_t *output);
+HAL_StatusTypeDef rsa_encrypt(const uint8_t *message, uint32_t message_size, const uint8_t *modulus, uint32_t modulus_size, const uint8_t *exponent, uint32_t exponent_size, uint8_t *output);
 void aes_generate_and_store_key();
 void hal_callback_lptim2_update_event(LPTIM_HandleTypeDef *hlptim);
 void hal_callback_lpuart_tx_complete(UART_HandleTypeDef *huart);
@@ -194,8 +194,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  uint8_t encryption_type = ENCRYPTION_TYPE_NONE;
-  uint8_t send_uart = 0U;
+  uint8_t encryption_type = ENCRYPTION_TYPE_AES;
+  uint8_t send_uart = 1U;
 
 
   HAL_UART_RegisterCallback(&hlpuart1, HAL_UART_TX_COMPLETE_CB_ID, hal_callback_lpuart_tx_complete);
@@ -258,29 +258,29 @@ int main(void)
 
   while (1)
   {
-//	if (lptim2_count - tick_count_ms > TICKS_PER_ITERATION_MS)
-//    {
-//		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
+	if (lptim2_count - tick_count_ms > TICKS_PER_ITERATION_MS)
+    {
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
 
 		if (encryption_type == ENCRYPTION_TYPE_AES)
 		{
-			if (HAL_CRYP_Encrypt(&hcryp, (uint32_t*)data, (uint16_t)4, (uint32_t*)output, HAL_MAX_DELAY) != HAL_OK)
+			if (HAL_CRYP_Encrypt(&hcryp, (uint32_t*)message, (uint16_t)32, (uint32_t*)encrypted, HAL_MAX_DELAY) != HAL_OK)
 			{
 
 			}
 
 			if (send_uart == 1U)
 			{
-				if (HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)output, (uint16_t)UART_TX_SIZE) != HAL_OK)
+				if (HAL_UART_Transmit_IT(&hlpuart1, (const uint8_t*)encrypted, (uint16_t)128) != HAL_OK)
 				{
 
 				}
 			}
 
-//			if (HAL_CRYP_Decrypt(&hcryp, (uint32_t*)output, (uint16_t)4, (uint32_t*)decryp_result, HAL_MAX_DELAY) != HAL_OK)
-//			{
-//
-//			}
+			if (HAL_CRYP_Decrypt(&hcryp, (uint32_t*)output, (uint16_t)4, (uint32_t*)decryp_result, HAL_MAX_DELAY) != HAL_OK)
+			{
+
+			}
 		}
 		else if (encryption_type == ENCRYPTION_TYPE_RSA)
 		{
@@ -307,8 +307,8 @@ int main(void)
 			}
 		}
 
-//		tick_count_ms = lptim2_count;
-//    }
+		tick_count_ms = lptim2_count;
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -456,14 +456,14 @@ void aes_generate_and_store_key()
 }
 
 /* Perform RSA encryption using PKA */
-HAL_StatusTypeDef rsa_encrypt(const uint8_t *message, uint32_t messageSize, const uint8_t *modulus, uint32_t modulusSize, const uint8_t *exponent, uint32_t exponentSize, uint8_t *output)
+HAL_StatusTypeDef rsa_encrypt(const uint8_t *message, uint32_t message_size, const uint8_t *modulus, uint32_t modulus_size, const uint8_t *exponent, uint32_t exponent_size, uint8_t *output)
 {
     HAL_StatusTypeDef status;
     PKA_ModExpInTypeDef in;
 
     /* Set up input structure */
-    in.expSize = exponentSize;
-    in.OpSize = modulusSize;
+    in.expSize = exponent_size;
+    in.OpSize = modulus_size;
     in.pExp = exponent;
     in.pOp1 = message;
     in.pMod = modulus;
